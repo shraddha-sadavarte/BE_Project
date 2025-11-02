@@ -12,7 +12,7 @@ contract UserRegistry {
     mapping(address => User) private users;
     mapping(address => bool) private registered; // track registration
 
-    event UserRegistered(address indexed account, string name, string faceHashOrIPFS);
+    event UserRegistered(address indexed account, string name,string email, string faceHashOrIPFS);
     event FaceUpdated(address indexed account, string newFaceHashOrIPFS);
 
     modifier onlyRegistered() {
@@ -39,7 +39,7 @@ contract UserRegistry {
 
         registered[msg.sender] = true;
 
-        emit UserRegistered(msg.sender, _name, _faceHashOrIPFS);
+        emit UserRegistered(msg.sender, _name,_email, _faceHashOrIPFS);
     }
 
     /// @notice Update face hash/IPFS CID if user wants to re-enroll
