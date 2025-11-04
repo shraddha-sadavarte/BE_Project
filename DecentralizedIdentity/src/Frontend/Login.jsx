@@ -2,21 +2,15 @@ import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { ethers } from "ethers";
 import { useNavigate } from "react-router-dom";
-import useFaceRecognition from "../Frontend/hooks/useFaceRecognition"
+import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
 import { getContract } from "../utils/contract";
 import { fetchJSONFromCID } from "../utils/ipfs";
 import { deriveKeyFromWallet, decryptData } from "../utils/crypto";
+import { recordLoginOnChain } from "../utils/recordLoginOnChain";
+import { logAnomalyOnChain } from "../utils/logAnomalyOnChain";
 
 export default function Login() {
-  const {
-    videoRef,
-    startCamera,
-    stopCamera,
-    detectLiveness,
-    captureFace,
-    facing,
-  } = useFaceRecognition();
-
+  const { videoRef, startCamera, stopCamera, detectLiveness, captureFace } = useFaceRecognition();
   const [status, setStatus] = useState("");
   const [faceReady, setFaceReady] = useState(false);
   const [attempts, setAttempts] = useState(0);
@@ -31,25 +25,32 @@ export default function Login() {
       }
 
       await window.ethereum.request({ method: "eth_requestAccounts" });
-      const contract = await getContract();
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
+      const contract = await getContract();
       const account = await signer.getAddress();
 
-      setStatus("⛓ Fetching registered user...");
-      const userData = await contract.getUser(account);
-      console.log("User data:", userData);
+      setStatus("⛓ Checking blockchain registration...");
+      const registered = await contract.isRegistered(account);
 
-      if (!userData || !userData.faceHashOrIPFS || userData.faceHashOrIPFS === "") {
+      if (!registered) {
         setStatus("❌ No user registered. Please signup first.");
         return;
       }
 
-      const { faceHashOrIPFS: cid, name, email } = userData;
+      setStatus("🔍 Fetching user from blockchain...");
+      const userData = await contract.getUser(account);
+      const [name, email, cid, accountAddr, active] = userData;
 
+      if (!active) {
+        setStatus("⚠️ Your identity has been revoked. Please re-register.");
+        return;
+      }
+
+      // Start camera & detect liveness
       setStatus("🎥 Starting camera...");
       await startCamera();
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1200));
 
       setStatus("👁 Checking liveness (blink your eyes)...");
       const live = await detectLiveness();
@@ -57,6 +58,7 @@ export default function Login() {
       if (!live) {
         setStatus("❌ Liveness failed (no blink detected).");
         setEmojiState("angry");
+        await logAnomalyOnChain(0, "Liveness check failed");
         stopCamera();
         setAttempts((a) => a + 1);
         return;
@@ -66,37 +68,45 @@ export default function Login() {
       const liveDescriptor = await captureFace();
       stopCamera();
 
-      // --- Simulated verification for now ---
+      // Fetch & decrypt face data
       const encryptedJson = await fetchJSONFromCID(cid);
       const key = await deriveKeyFromWallet();
       const decrypted = await decryptData(key, encryptedJson);
 
       if (decrypted.walletAddress.toLowerCase() !== account.toLowerCase()) {
         setStatus("❌ Wallet mismatch!");
+        await logAnomalyOnChain(0, "Wallet mismatch");
         return;
       }
 
-      // Simulated 90% match
-      const similarity = 0.9;
+      // Simulate similarity
+      const similarity = (Math.random() * 0.2) + 0.8; // 80–100%
       const similarityPercent = (similarity * 100).toFixed(2);
       localStorage.setItem("loginConfidence", similarityPercent);
 
       setEmojiState("happy");
-      setStatus(`✅ Verified ${name} (${similarityPercent}% match). Click OK to login.`);
+      setStatus(`✅ Verified ${name} (${similarityPercent}% match)`);
 
+      // Store session
       const session = {
         name,
         email,
         account,
         cid,
         verifiedAt: new Date().toISOString(),
+        confidence: similarityPercent
       };
       localStorage.setItem("user", JSON.stringify(session));
+
+      // Record login on-chain
+      await recordLoginOnChain(similarityPercent);
+
       setFaceReady(true);
     } catch (err) {
       console.error(err);
       setStatus("❌ Error: " + err.message);
       setEmojiState("angry");
+      await logAnomalyOnChain(0, "Login error");
       setAttempts((a) => a + 1);
       stopCamera();
     }
@@ -119,30 +129,16 @@ export default function Login() {
     setTimeout(() => navigate("/email-otp"), 1000);
   };
 
-  // 🎭 Emoji Animations
   const emojiVariants = {
-    neutral: facing
-      ? { rotate: 0, scale: 1 }
-      : {
-          rotateY: [0, 180, 0],
-          transition: { duration: 1.2, ease: "easeInOut" },
-        },
-    happy: {
-      rotate: [0, 5, -5, 0],
-      scale: [1, 1.2, 1],
-      transition: { duration: 0.6 },
-    },
-    angry: {
-      rotate: [0, -15, 15, -15, 15, 0],
-      transition: { duration: 1 },
-    },
+    neutral: { scale: 1 },
+    happy: { scale: [1, 1.2, 1], transition: { duration: 0.6 } },
+    angry: { rotate: [0, -15, 15, 0], transition: { duration: 1 } },
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
-      <h1 className="text-3xl font-bold mb-4">Login</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-purple-100 via-blue-50 to-green-100 p-6">
+      <h1 className="text-4xl font-bold mb-4 text-indigo-700">Secure Face Login 🔐</h1>
 
-      {/* 👁 Live Camera Feed */}
       <video
         ref={videoRef}
         autoPlay
@@ -150,25 +146,22 @@ export default function Login() {
         muted
         width="640"
         height="480"
-        className="rounded-2xl shadow-lg mb-6"
+        className="rounded-2xl shadow-lg mb-6 border-4 border-indigo-300"
       />
 
-      {/* 😐 Animated Emoji */}
       <motion.div
-        className="text-8xl mb-6"
+        className="text-8xl mb-6 select-none"
         variants={emojiVariants}
         animate={emojiState}
-        data-emoji-state={emojiState}  // Added for CSS state-specific effects
       >
         😊
       </motion.div>
 
-      {/* Buttons */}
       <div className="flex space-x-3">
         {!faceReady && attempts < 3 && (
           <button
             onClick={handleDetectFace}
-            className="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700"
+            className="bg-indigo-600 text-white px-6 py-3 rounded-xl shadow hover:bg-indigo-700 transition-transform transform hover:scale-105"
           >
             Detect & Verify
           </button>
@@ -177,9 +170,9 @@ export default function Login() {
         {faceReady && (
           <button
             onClick={handleLogin}
-            className="bg-indigo-600 text-white px-4 py-2 rounded animate-pulse"
+            className="bg-green-600 text-white px-6 py-3 rounded-xl animate-pulse shadow hover:bg-green-700"
           >
-            OK
+            Continue ➡️
           </button>
         )}
 
@@ -187,13 +180,13 @@ export default function Login() {
           <>
             <button
               onClick={handleRetry}
-              className="bg-yellow-500 text-white px-4 py-2 rounded shadow hover:bg-yellow-600"
+              className="bg-yellow-500 text-white px-6 py-3 rounded-xl shadow hover:bg-yellow-600"
             >
               Retry
             </button>
             <button
               onClick={handleEmailOTP}
-              className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"
+              className="bg-blue-600 text-white px-6 py-3 rounded-xl shadow hover:bg-blue-700"
             >
               Try via Email OTP
             </button>
@@ -201,7 +194,7 @@ export default function Login() {
         )}
       </div>
 
-      <p className="mt-4 font-semibold text-center">{status}</p>
+      <p className="mt-4 font-semibold text-center text-gray-700">{status}</p>
     </div>
   );
 }

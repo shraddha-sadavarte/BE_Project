@@ -19,9 +19,11 @@ export default function useFaceRecognition() {
   const videoRef = useRef(null);
   const [faceMesh, setFaceMesh] = useState(null);
   const [blinked, setBlinked] = useState(false);
-  const [facing, setFacing] = useState(true);
+  const [facing, setFacing] = useState(false);
   const [camera, setCamera] = useState(null);
+  const [modelReady, setModelReady] = useState(false);
 
+  // --- Initialize FaceMesh ---
   useEffect(() => {
     const fm = new FaceMesh({
       locateFile: (file) =>
@@ -37,6 +39,9 @@ export default function useFaceRecognition() {
 
     fm.onResults(onResults);
     setFaceMesh(fm);
+
+    // Mark model ready after a small delay
+    setTimeout(() => setModelReady(true), 2000);
   }, []);
 
   const onResults = (results) => {
@@ -54,9 +59,8 @@ export default function useFaceRecognition() {
     const rightEAR = computeEAR(rightEye);
     const avgEAR = (leftEAR + rightEAR) / 2;
 
-    // Blink detection threshold — relaxed for better detection
-    const blinkThreshold = 0.29;
-    if (avgEAR < blinkThreshold) {
+    // More sensitive blink threshold
+    if (avgEAR < 0.27) {
       setBlinked(true);
     }
   };
@@ -64,7 +68,7 @@ export default function useFaceRecognition() {
   const startCamera = async () => {
     if (!videoRef.current || !faceMesh) {
       console.error("❌ Camera or FaceMesh not ready yet");
-      return;
+      return false;
     }
 
     const newCam = new cam.Camera(videoRef.current, {
@@ -77,6 +81,7 @@ export default function useFaceRecognition() {
 
     setCamera(newCam);
     await newCam.start();
+    return true;
   };
 
   const stopCamera = () => {
@@ -85,13 +90,10 @@ export default function useFaceRecognition() {
 
   const detectLiveness = async ({ timeout = 8000, interval = 200 } = {}) => {
     setBlinked(false);
-
-    // Give camera time to stabilize
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1500)); // let camera stabilize
 
     return new Promise((resolve) => {
       const start = Date.now();
-
       const timer = setInterval(() => {
         if (blinked) {
           clearInterval(timer);
@@ -106,7 +108,7 @@ export default function useFaceRecognition() {
   };
 
   const captureFace = async () => {
-    // Simulated embedding for now
+    // Replace later with ML face embedding model
     return [Math.random(), Math.random(), Math.random()];
   };
 
@@ -117,5 +119,6 @@ export default function useFaceRecognition() {
     detectLiveness,
     captureFace,
     facing,
+    modelReady,
   };
 }

@@ -1,117 +1,243 @@
 import React, { useEffect, useState } from "react";
-import { PieChart, Pie, Cell, Legend, Tooltip } from "recharts";
+import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
+import { ethers } from "ethers";
+import { getContract } from "../utils/contract";
 import { useNavigate } from "react-router-dom";
 
 export default function Dashboard() {
   const [confidence, setConfidence] = useState(0);
-  const [level, setLevel] = useState("Unknown");
-  const [color, setColor] = useState("gray");
+  const [loginHistory, setLoginHistory] = useState([]);
+  const [anomalies, setAnomalies] = useState([]);
+  const [userData, setUserData] = useState(null);
+  const [revoking, setRevoking] = useState(false);
   const navigate = useNavigate();
-
   const user = JSON.parse(localStorage.getItem("user"));
 
   useEffect(() => {
-    const storedConfidence = localStorage.getItem("loginConfidence");
-    if (storedConfidence) {
-      const conf = parseFloat(storedConfidence);
-      setConfidence(conf);
+    if (!user) return;
 
-      if (conf < 30) {
-        setLevel("Rejected ❌ (Too Low Confidence)");
-        setColor("red");
-      } else if (conf < 50) {
-        setLevel("Very Low ⚠️ (Unsafe Match)");
-        setColor("orange");
-      } else if (conf < 80) {
-        setLevel("Medium Match ⚠️");
-        setColor("yellow");
-      } else {
-        setLevel("High Match ✅");
-        setColor("green");
-      }
+    (async () => {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const contract = await getContract();
+
+      const history = await contract.getLoginHistory(user.account);
+      setLoginHistory(
+        history.map((h) => ({
+          confidence: Number(h.confidence),
+          timestamp: new Date(Number(h.timestamp) * 1000).toLocaleString(),
+        }))
+      );
+
+      const anomalyData = await contract.getAllAnomalies();
+      const userAnomalies = anomalyData.filter(
+        (a) => a.user.toLowerCase() === user.account.toLowerCase()
+      );
+      setAnomalies(
+        userAnomalies.map((a) => ({
+          confidence: Number(a.confidence),
+          reason: a.reason,
+          timestamp: new Date(Number(a.timestamp) * 1000).toLocaleString(),
+        }))
+      );
+
+      const details = await contract.getUser(user.account);
+      setUserData({
+        name: details[0],
+        email: details[1],
+        active: details[4],
+        registeredAt: new Date(Number(details[5]) * 1000).toLocaleString(),
+        lastUpdated: new Date(Number(details[6]) * 1000).toLocaleString(),
+      });
+
+      const storedConfidence = localStorage.getItem("loginConfidence");
+      setConfidence(parseFloat(storedConfidence) || 0);
+    })();
+  }, [user]);
+
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate("/");
+  };
+
+  const handleRevoke = async () => {
+    if (!window.ethereum) return;
+    try {
+      setRevoking(true);
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = await getContract();
+      const tx = await contract.revokeUser();
+      await tx.wait();
+      alert("Identity revoked successfully!");
+      setUserData((prev) => ({ ...prev, active: false }));
+    } catch (err) {
+      alert("Failed to revoke: " + err.message);
+    } finally {
+      setRevoking(false);
     }
-  }, []);
+  };
 
   const data = [
     { name: "Matched", value: confidence },
     { name: "Remaining", value: 100 - confidence },
   ];
-  const COLORS = [color, "#E0E0E0"];
-
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    localStorage.removeItem("loginConfidence");
-    navigate("/");
-  };
+  const COLORS = ["#4CAF50", "#E0E0E0"];
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-green-100 via-blue-50 to-purple-100 p-6 animate-fade-in">
-      <h1 className="text-5xl font-extrabold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-blue-600 drop-shadow-lg animate-bounce">
-        Welcome to Dashboard 🎉
-      </h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 p-4 md:p-8">
+      {/* Header */}
+      <div className="text-center mb-10">
+        <h1 className="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 drop-shadow-sm">
+          Dashboard
+        </h1>
+        <p className="text-gray-600 mt-2 text-lg">Manage your identity and monitor activity</p>
+      </div>
 
-      {user ? (
-        <div className="bg-white bg-opacity-90 backdrop-blur-lg shadow-2xl rounded-3xl p-8 w-full max-w-lg text-center border border-gray-200 hover:shadow-3xl transition-all duration-500 ease-in-out transform hover:scale-105">
-          <div className="mb-6">
-            <p className="text-xl mb-2 text-gray-700">
-              Hello, <strong className="text-indigo-600">{user.name}</strong> ({user.email})
-            </p>
-            <p className="text-sm text-gray-500 font-mono bg-gray-100 rounded-lg p-2 inline-block">
-              Wallet: {user.account}
-            </p>
-          </div>
-
-          <h2 className="text-3xl font-bold mb-4 text-gray-800">Face Recognition Accuracy</h2>
-          <p
-            className={`text-2xl font-bold mb-6 px-4 py-2 rounded-full inline-block ${
-              color === "green"
-                ? "text-green-700 bg-green-100 border-2 border-green-300"
-                : color === "yellow"
-                ? "text-yellow-700 bg-yellow-100 border-2 border-yellow-300"
-                : color === "orange"
-                ? "text-orange-700 bg-orange-100 border-2 border-orange-300"
-                : "text-red-700 bg-red-100 border-2 border-red-300"
-            } animate-pulse`}
-          >
-            {confidence.toFixed(2)}% - {level}
-          </p>
-
-          <div className="flex justify-center mb-6">
-            <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl p-4 shadow-inner hover:shadow-lg transition-shadow duration-300">
-              <PieChart width={280} height={280}>
-                <Pie
-                  data={data}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={70}
-                  outerRadius={110}
-                  dataKey="value"
-                  label={(entry) => `${entry.name}: ${entry.value.toFixed(1)}%`}
-                  animationBegin={0}
-                  animationDuration={1500}
-                >
-                  {data.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => `${value.toFixed(2)}%`} />
-                <Legend wrapperStyle={{ fontSize: '14px', fontWeight: 'bold' }} />
-              </PieChart>
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+        {/* User Details Card */}
+        {userData && (
+          <div className="bg-white/90 backdrop-blur-md p-6 md:p-8 rounded-2xl shadow-xl border border-gray-200 hover:shadow-2xl transition-all duration-300">
+            <h2 className="text-2xl md:text-3xl font-bold mb-6 text-gray-800 flex items-center">
+              <span className="mr-3">👤</span> User Details
+            </h2>
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:justify-between">
+                <span className="font-semibold text-blue-600">Name:</span>
+                <span className="text-gray-700">{userData.name}</span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between">
+                <span className="font-semibold text-blue-600">Email:</span>
+                <span className="text-gray-700">{userData.email}</span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between">
+                <span className="font-semibold text-blue-600">Wallet:</span>
+                <span className="font-mono text-sm bg-gray-100 px-3 py-1 rounded-lg text-gray-700 break-all">{user.account}</span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between">
+                <span className="font-semibold text-blue-600">Registered At:</span>
+                <span className="text-gray-700">{userData.registeredAt}</span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between">
+                <span className="font-semibold text-blue-600">Last Updated:</span>
+                <span className="text-gray-700">{userData.lastUpdated}</span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between">
+                <span className="font-semibold text-blue-600">Status:</span>
+                <span className={`font-medium ${userData.active ? 'text-green-600' : 'text-red-600'}`}>
+                  {userData.active ? '✅ Active' : '❌ Revoked'}
+                </span>
+              </div>
             </div>
+            {userData.active && (
+              <button
+                onClick={handleRevoke}
+                disabled={revoking}
+                className="mt-6 w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-lg font-semibold shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {revoking ? "Revoking..." : "Revoke Identity 🔒"}
+              </button>
+            )}
           </div>
+        )}
 
-          <button
-            onClick={handleLogout}
-            className="mt-6 px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-full shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-300 ease-in-out"
-          >
-            Logout 🚪
-          </button>
+        {/* Pie Chart Card */}
+        <div className="bg-white/90 backdrop-blur-md p-6 md:p-8 rounded-2xl shadow-xl border border-gray-200 hover:shadow-2xl transition-all duration-300 flex flex-col items-center">
+          <h2 className="text-2xl md:text-3xl font-bold mb-6 text-gray-800 flex items-center">
+            <span className="mr-3">📊</span> Confidence Level
+          </h2>
+          <PieChart width={300} height={300}>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius={70}
+              outerRadius={110}
+              dataKey="value"
+              label={({ name, value }) => `${name}: ${value.toFixed(1)}%`}
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value) => `${value.toFixed(1)}%`} />
+            <Legend />
+          </PieChart>
+          <p className="mt-4 text-gray-600 text-center">Current login confidence: {confidence.toFixed(1)}%</p>
         </div>
-      ) : (
-        <p className="text-lg text-gray-600 bg-white bg-opacity-80 rounded-lg p-4 shadow-md">
-          No user data found. Please login.
-        </p>
-      )}
+      </div>
+
+      {/* Login History Table */}
+      <div className="bg-white/90 backdrop-blur-md p-6 md:p-8 rounded-2xl shadow-xl border border-gray-200 mb-8">
+        <h2 className="text-2xl md:text-3xl font-bold mb-6 text-gray-800 flex items-center">
+          <span className="mr-3">📅</span> Login History
+        </h2>
+        {loginHistory.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden shadow-sm">
+              <thead className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white">
+                <tr>
+                  <th className="p-4 border border-gray-300 text-left">#</th>
+                  <th className="p-4 border border-gray-300 text-left">Date & Time</th>
+                  <th className="p-4 border border-gray-300 text-left">Confidence (%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loginHistory.map((log, i) => (
+                  <tr key={i} className="hover:bg-gray-50 transition-colors duration-200 even:bg-gray-25">
+                    <td className="border border-gray-300 p-4">{i + 1}</td>
+                    <td className="border border-gray-300 p-4">{log.timestamp}</td>
+                    <td className="border border-gray-300 p-4 font-semibold text-green-600">{log.confidence.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-500 text-center py-8">No login history found.</p>
+        )}
+      </div>
+
+      {/* Anomaly Logs Table */}
+      <div className="bg-white/90 backdrop-blur-md p-6 md:p-8 rounded-2xl shadow-xl border border-gray-200 mb-8">
+        <h2 className="text-2xl md:text-3xl font-bold mb-6 text-red-600 flex items-center">
+          <span className="mr-3">⚠️</span> Anomaly Logs
+        </h2>
+        {anomalies.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden shadow-sm">
+              <thead className="bg-gradient-to-r from-red-500 to-pink-500 text-white">
+                <tr>
+                  <th className="p-4 border border-gray-300 text-left">Date & Time</th>
+                  <th className="p-4 border border-gray-300 text-left">Confidence (%)</th>
+                  <th className="p-4 border border-gray-300 text-left">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {anomalies.map((a, i) => (
+                  <tr key={i} className="hover:bg-gray-50 transition-colors duration-200 even:bg-gray-25">
+                    <td className="border border-gray-300 p-4">{a.timestamp}</td>
+                    <td className="border border-gray-300 p-4 font-semibold text-red-600">{a.confidence.toFixed(1)}</td>
+                    <td className="border border-gray-300 p-4">{a.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-500 text-center py-8">No anomalies detected.</p>
+        )}
+      </div>
+
+      {/* Logout Button */}
+      <div className="text-center">
+        <button
+          onClick={handleLogout}
+          className="px-8 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-lg font-semibold shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200"
+        >
+          Logout 🚪
+        </button>
+      </div>
     </div>
   );
 }
