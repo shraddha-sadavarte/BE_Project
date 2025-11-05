@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import UserRegistry from "../../artifacts/contracts/UserRegistry.sol/UserRegistry.json"
 
 // Replace with your deployed contract address on Hardhat local
-const CONTRACT_ADDRESS = "0xC469e7aE4aD962c30c7111dc580B4adbc7E914DD";
+const CONTRACT_ADDRESS = "0x73511669fd4dE447feD18BB79bAFeAC93aB7F31f";
 
 /**
  * Returns a contract instance connected to the signer

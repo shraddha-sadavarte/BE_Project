@@ -89,6 +89,7 @@ export default function Login() {
       }
 
       const decrypted = await decryptData(key, encryptedJson);
+      console.log(decrypted);
       if (!decrypted.walletAddress || decrypted.walletAddress.toLowerCase() !== account.toLowerCase()) {
         setStatus("❌ Wallet address mismatch — unauthorized user!");
         stopCamera();
@@ -117,7 +118,7 @@ export default function Login() {
       localStorage.setItem("loginConfidence", similarityPercent);
 
       // Reject if below threshold
-      if (similarity < 0.8) {
+      if (similarity < 0.6) {
         setStatus(`❌ Face mismatch — unauthorized login attempt! (Similarity: ${similarityPercent}%)`);
         stopCamera();
         return;
