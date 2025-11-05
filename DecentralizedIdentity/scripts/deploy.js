@@ -1,3 +1,4 @@
+// scripts/deploy.js
 import pkg from "hardhat";
 const { ethers } = pkg;
 
@@ -7,15 +8,21 @@ async function main() {
   console.log("🚀 Deploying contracts with account:", deployer.address);
 
   const balance = await ethers.provider.getBalance(deployer.address);
-  console.log("💰 Account balance:", balance.toString());
+  console.log("💰 Account balance (ETH):", ethers.formatEther(balance));
 
-  const MyContract = await ethers.getContractFactory("UserRegistry");
-  const contract = await MyContract.deploy();
+  if (balance === 0n) {
+    throw new Error("❌ Deployer account has 0 ETH — make sure Hardhat node is running (npx hardhat node)");
+  }
+
+  const UserRegistry = await ethers.getContractFactory("UserRegistry");
+  console.log("📦 Deploying UserRegistry...");
+  const contract = await UserRegistry.deploy();
 
   console.log("⏳ Waiting for deployment...");
   await contract.waitForDeployment();
 
-  console.log("✅ Contract deployed to:", await contract.getAddress());
+  const address = await contract.getAddress();
+  console.log("✅ Contract deployed to:", address);
 }
 
 main().catch((error) => {

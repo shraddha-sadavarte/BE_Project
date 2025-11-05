@@ -1,18 +1,18 @@
-// src/App.jsx
+// frontend/src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Auth from "./Frontend/Auth"; // your dual-panel signup/login component
+import Auth from "./Frontend/Auth";
 import Dashboard from "./Frontend/Dashboard";
 import PrivateRoute from "./Frontend/PrivateRoute";
+import LoginWithEmail from "./Frontend/LoginWithEmail";
+import EmailVerify from "./Frontend/EmailVerify";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Root path: Auth component */}
         <Route
           path="/"
           element={
-            // If user already logged in, redirect to dashboard
             JSON.parse(localStorage.getItem("user")) ? (
               <Navigate to="/dashboard" replace />
             ) : (
@@ -21,7 +21,6 @@ function App() {
           }
         />
 
-        {/* Dashboard protected */}
         <Route
           path="/dashboard"
           element={
@@ -31,7 +30,10 @@ function App() {
           }
         />
 
-        {/* Fallback route: redirect unknown URLs to root */}
+        {/* Email OTP routes */}
+        <Route path="/email-otp" element={<LoginWithEmail />} />
+        <Route path="/email-verify" element={<EmailVerify />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

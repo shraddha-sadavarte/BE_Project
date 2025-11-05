@@ -31,15 +31,15 @@ export default function Signup() {
       const address = await signer.getAddress();
       const contract = await getContract();
 
-      // Check if user is already registered
+      // ✅ Check if already registered
       setStatus("🔍 Checking existing registration...");
-      const existingUser = await contract.getUser(address);
-      if (existingUser && existingUser.faceHashOrIPFS && existingUser.faceHashOrIPFS !== "") {
+      const alreadyRegistered = await contract.isRegistered(address);
+      if (alreadyRegistered) {
         setStatus("⚠️ User already registered. Please login instead.");
         return;
       }
 
-      // Start camera and liveness detection
+      // 🎥 Start camera and detect liveness
       setStatus("🎥 Starting camera...");
       await startCamera();
       await new Promise((r) => setTimeout(r, 1000));
@@ -52,6 +52,7 @@ export default function Signup() {
         return;
       }
 
+      // 📸 Capture face
       setStatus("📸 Capturing face...");
       const descriptor = await captureFace();
       if (!descriptor) {
@@ -60,12 +61,11 @@ export default function Signup() {
         return;
       }
 
-      // Encrypt face data with wallet key
+      // 🔐 Encrypt face data
       setStatus("🔐 Deriving encryption key...");
       const key = await deriveKeyFromWallet();
 
-      // const verificationKey = ethers.hexlify(ethers.randomBytes(32));
-      const faceHash = keccak256(toUtf8Bytes(descriptor.join(",")))
+      const faceHash = keccak256(toUtf8Bytes(descriptor.join(",")));
       const dataToEncrypt = {
         faceDescriptor: Array.from(descriptor),
         walletAddress: address,
@@ -83,7 +83,7 @@ export default function Signup() {
         return;
       }
 
-      // Upload encrypted data to IPFS
+      // 🛰 Upload encrypted data to IPFS
       setStatus("🛰 Uploading encrypted identity to IPFS...");
       const cid = await uploadJSON(encrypted);
       if (!cid) {
@@ -92,7 +92,7 @@ export default function Signup() {
         return;
       }
 
-      // Register user on blockchain
+      // ⛓ Register user on blockchain
       setStatus("⛓ Storing identity on blockchain...");
       const tx = await contract.registerUser(form.name, form.email, cid);
       await tx.wait();
