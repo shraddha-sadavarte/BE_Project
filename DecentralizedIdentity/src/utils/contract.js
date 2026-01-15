@@ -2,8 +2,10 @@
 import { ethers } from "ethers";
 import UserRegistry from "../../artifacts/contracts/UserRegistry.sol/UserRegistry.json"
 
-// Replace with your deployed contract address on Hardhat local
-const CONTRACT_ADDRESS = "0x73511669fd4dE447feD18BB79bAFeAC93aB7F31f";
+
+const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+
+
 
 /**
  * Returns a contract instance connected to the signer
@@ -26,7 +28,18 @@ export async function getContract() {
     throw err;
   }
 }
-
+export async function getReadContract() {
+  try {
+    // For local Hardhat network: default provider (e.g., localhost:8545)
+    // For Sepolia/testnet: you can also use Alchemy/Infura endpoint here.
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, UserRegistry.abi, provider);
+    return contract;
+  } catch (err) {
+    console.error("❌ Failed to create read-only contract:", err);
+    throw err;
+  }
+}
 /**
  * Register user on-chain
  */

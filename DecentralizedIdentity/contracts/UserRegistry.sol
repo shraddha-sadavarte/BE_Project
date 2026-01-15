@@ -5,15 +5,38 @@ contract UserRegistry {
     struct User {
         string name;
         string email;
-        string faceHashOrIPFS; // Store SHA256 hash or IPFS CID
+        string faceHashOrIPFS;
         address account;
+        bool active;
+        uint256 registeredAt;
+        uint256 lastUpdated;
+    }
+
+    struct Anomaly {
+        address user;
+        uint256 confidence;
+        string reason;
+        uint256 timestamp;
+    }
+
+    struct LoginEvent {
+        address user;
+        uint256 confidence;
+        uint256 timestamp;
     }
 
     mapping(address => User) private users;
-    mapping(address => bool) private registered; // track registration
+    mapping(address => bool) private registered;
+    mapping(address => LoginEvent[]) private loginHistory; // 👈 store login events
+    mapping(string => address) private emailToWallet;
 
-    event UserRegistered(address indexed account, string name, string faceHashOrIPFS);
+    Anomaly[] public anomalies;
+
+    event UserRegistered(address indexed account, string name, string email, string faceHashOrIPFS);
     event FaceUpdated(address indexed account, string newFaceHashOrIPFS);
+    event UserRevoked(address indexed account, uint256 timestamp);
+    event AnomalyLogged(address indexed user, uint256 confidence, string reason, uint256 timestamp);
+    event LoginRecorded(address indexed user, uint256 confidence, uint256 timestamp);
 
     modifier onlyRegistered() {
         require(registered[msg.sender], "User not registered");
@@ -28,41 +51,93 @@ contract UserRegistry {
         require(bytes(_name).length > 0, "Name required");
         require(bytes(_email).length > 0, "Email required");
         require(bytes(_faceHashOrIPFS).length > 0, "Face data required");
-        require(!registered[msg.sender], "User already registered");
+        require(!registered[msg.sender], "Wallet already registered");
+        require(emailToWallet[_email] == address(0), "Email already registered");
+
 
         users[msg.sender] = User({
             name: _name,
             email: _email,
             faceHashOrIPFS: _faceHashOrIPFS,
-            account: msg.sender
+            account: msg.sender,
+            active: true,
+            registeredAt: block.timestamp,
+            lastUpdated: block.timestamp
         });
 
         registered[msg.sender] = true;
-
-        emit UserRegistered(msg.sender, _name, _faceHashOrIPFS);
+        emailToWallet[_email] = msg.sender
+        emit UserRegistered(msg.sender, _name, _email, _faceHashOrIPFS);
     }
 
-    /// @notice Update face hash/IPFS CID if user wants to re-enroll
     function updateFace(string memory _newFaceHashOrIPFS) public onlyRegistered {
         require(bytes(_newFaceHashOrIPFS).length > 0, "New face data required");
-
-        users[msg.sender].faceHashOrIPFS = _newFaceHashOrIPFS;
-
+        User storage u = users[msg.sender];
+        u.faceHashOrIPFS = _newFaceHashOrIPFS;
+        u.lastUpdated = block.timestamp;
         emit FaceUpdated(msg.sender, _newFaceHashOrIPFS);
     }
 
-    /// @notice Get user details
-    function getUser(address _account) public view returns (
-        string memory name,
-        string memory email,
-        string memory faceHashOrIPFS,
-        address account
-    ) {
-        User memory u = users[_account];
-        return (u.name, u.email, u.faceHashOrIPFS, u.account);
+    function revokeUser() public onlyRegistered {
+        users[msg.sender].active = false;
+        registered[msg.sender] = false;
+        emit UserRevoked(msg.sender, block.timestamp);
     }
 
-    /// @notice Check if a wallet is registered
+    function logAnomaly(uint256 _confidence, string memory _reason) public {
+        anomalies.push(Anomaly({
+            user: msg.sender,
+            confidence: _confidence,
+            reason: _reason,
+            timestamp: block.timestamp
+        }));
+        emit AnomalyLogged(msg.sender, _confidence, _reason, block.timestamp);
+    }
+
+    // 🧠 Record successful login (confidence + timestamp)
+    function recordLogin(uint256 _confidence) public onlyRegistered {
+        loginHistory[msg.sender].push(LoginEvent({
+            user: msg.sender,
+            confidence: _confidence,
+            timestamp: block.timestamp
+        }));
+        emit LoginRecorded(msg.sender, _confidence, block.timestamp);
+    }
+
+    function getUser(address _account)
+        public
+        view
+        returns (
+            string memory name,
+            string memory email,
+            string memory faceHashOrIPFS,
+            address account,
+            bool active,
+            uint256 registeredAt,
+            uint256 lastUpdated
+        )
+    {
+        User memory u = users[_account];
+        return (
+            u.name,
+            u.email,
+            u.faceHashOrIPFS,
+            u.account,
+            u.active,
+            u.registeredAt,
+            u.lastUpdated
+        );
+    }
+
+    function getAllAnomalies() public view returns (Anomaly[] memory) {
+        return anomalies;
+    }
+
+    // 🔎 Get all login history for a user
+    function getLoginHistory(address _account) public view returns (LoginEvent[] memory) {
+        return loginHistory[_account];
+    }
+
     function isRegistered(address _account) public view returns (bool) {
         return registered[_account];
     }

@@ -1,16 +1,14 @@
+import React from "react";
 import { useRef, useState, useEffect } from "react";
 import { FaceMesh } from "@mediapipe/face_mesh";
 import * as cam from "@mediapipe/camera_utils";
 
-// MediaPipe FaceMesh indices for eyes
 const LEFT_EYE_INDICES = [33, 160, 158, 133, 153, 144];
 const RIGHT_EYE_INDICES = [362, 385, 387, 263, 373, 380];
 
-// Compute Euclidean distance
 const dist = (p1, p2) =>
   Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2 + (p1.z - p2.z) ** 2);
 
-// Compute Eye Aspect Ratio (EAR)
 const computeEAR = (eye) => {
   const A = dist(eye[1], eye[5]);
   const B = dist(eye[2], eye[4]);
@@ -19,13 +17,22 @@ const computeEAR = (eye) => {
 };
 
 export default function useFaceRecognition() {
+  const streamRef = useRef(null);
   const videoRef = useRef(null);
-  const [faceMesh, setFaceMesh] = useState(null);
+  const faceMeshRef = useRef(null);
+  const cameraRef = useRef(null);
+  const blinkedRef = useRef(false);
+
   const [blinked, setBlinked] = useState(false);
+  const [facing, setFacing] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
 
-  let camera = null;
-
+  // ---------------------------
+  // Initialize FaceMesh ONCE
+  // ---------------------------
   useEffect(() => {
+    if (faceMeshRef.current) return;
+
     const fm = new FaceMesh({
       locateFile: (file) =>
         `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
@@ -34,59 +41,106 @@ export default function useFaceRecognition() {
     fm.setOptions({
       maxNumFaces: 1,
       refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6,
     });
 
     fm.onResults(onResults);
-    setFaceMesh(fm);
+    faceMeshRef.current = fm;
+
+    const t = setTimeout(() => setModelReady(true), 2000);
+
+    // 🔴 CLEANUP
+    return () => {
+      clearTimeout(t);
+      stopCamera();
+      faceMeshRef.current?.close();
+      faceMeshRef.current = null;
+    };
   }, []);
 
+  // ---------------------------
+  // FaceMesh result handler
+  // ---------------------------
   const onResults = (results) => {
-    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0)
+    if (!results.multiFaceLandmarks?.length) {
+      setFacing(false);
       return;
+    }
 
+    setFacing(true);
     const landmarks = results.multiFaceLandmarks[0];
 
-    // Extract left & right eye points
     const leftEye = LEFT_EYE_INDICES.map((i) => landmarks[i]);
     const rightEye = RIGHT_EYE_INDICES.map((i) => landmarks[i]);
 
-    const leftEAR = computeEAR(leftEye);
-    const rightEAR = computeEAR(rightEye);
-    const avgEAR = (leftEAR + rightEAR) / 2;
+    const avgEAR =
+      (computeEAR(leftEye) + computeEAR(rightEye)) / 2;
 
-    // Blink detection threshold
-    if (avgEAR < 0.20) {
+    if (avgEAR < 0.27 && !blinkedRef.current) {
+      blinkedRef.current = true;
       setBlinked(true);
     }
   };
 
+  // ---------------------------
+  // Start Camera
+  // ---------------------------
   const startCamera = async () => {
-    if (videoRef.current && faceMesh) {
-      camera = new cam.Camera(videoRef.current, {
-        onFrame: async () => {
-          await faceMesh.send({ image: videoRef.current });
-        },
-        width: 640,
-        height: 480,
-      });
-      camera.start();
-    }
+    if (!videoRef.current || !faceMeshRef.current) return false;
+
+    if (streamRef.current) return true; // already running
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    streamRef.current = stream;
+    videoRef.current.srcObject = stream;
+
+    const camInstance = new cam.Camera(videoRef.current, {
+      onFrame: async () => {
+        await faceMeshRef.current.send({ image: videoRef.current });
+      },
+      width: 640,
+      height: 480,
+    });
+
+    cameraRef.current = camInstance;
+    await camInstance.start();
+    return true;
   };
 
+  // ---------------------------
+  // Stop Camera (IMPORTANT FIX)
+  // ---------------------------
   const stopCamera = () => {
-    if (camera) camera.stop();
+    cameraRef.current?.stop();
+    cameraRef.current = null;
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    blinkedRef.current = false;
+    setBlinked(false);
   };
 
-  const detectLiveness = async ({ timeout = 5000, interval = 200 }) => {
+  // ---------------------------
+  // Detect Blink
+  // ---------------------------
+  const detectLiveness = async ({ timeout = 8000, interval = 200 } = {}) => {
+    blinkedRef.current = false;
     setBlinked(false);
+
+    await new Promise((r) => setTimeout(r, 1200));
 
     return new Promise((resolve) => {
       const start = Date.now();
-
       const timer = setInterval(() => {
-        if (blinked) {
+        if (blinkedRef.current) {
           clearInterval(timer);
           resolve(true);
         }
@@ -99,7 +153,6 @@ export default function useFaceRecognition() {
   };
 
   const captureFace = async () => {
-    // For now return dummy vector; replace with embedding later
     return [Math.random(), Math.random(), Math.random()];
   };
 
@@ -109,5 +162,7 @@ export default function useFaceRecognition() {
     stopCamera,
     detectLiveness,
     captureFace,
+    facing,
+    modelReady,
   };
 }
