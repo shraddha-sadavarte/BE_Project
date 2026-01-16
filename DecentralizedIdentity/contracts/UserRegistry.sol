@@ -66,7 +66,7 @@ contract UserRegistry {
         });
 
         registered[msg.sender] = true;
-        emailToWallet[_email] = msg.sender
+        emailToWallet[_email] = msg.sender;
         emit UserRegistered(msg.sender, _name, _email, _faceHashOrIPFS);
     }
 

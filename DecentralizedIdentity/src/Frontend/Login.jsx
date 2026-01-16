@@ -9,6 +9,20 @@ import { deriveKeyFromWallet, decryptData } from "../utils/crypto";
 import { recordLoginOnChain } from "../utils/recordLoginOnChain";
 import { logAnomalyOnChain } from "../utils/logAnomalyOnChain";
 
+// ✅ Face vector similarity (cosine)
+const cosineSimilarity = (a, b) => {
+  if (!a || !b || a.length !== b.length) return 0;
+
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(magA) * Math.sqrt(magB));
+};
+
+
 export default function Login() {
   const { videoRef, startCamera, stopCamera, detectLiveness, captureFace } = useFaceRecognition();
   const [status, setStatus] = useState("");
@@ -35,6 +49,7 @@ export default function Login() {
 
         setAccount(accountAddr);
         setContract(contractInstance);
+        setStatus("✅ Blockchain connected");
 
        // console.log("Wallet connected:", accountAddr);
       } catch (err) {
@@ -106,17 +121,67 @@ export default function Login() {
         return;
       }
 
-      // Simulate similarity
-      const similarity = Math.random() * 0.2 + 0.8; // 80–100%
-      const similarityPercent = Number((similarity * 100).toFixed(2));
-      localStorage.setItem("loginConfidence", similarityPercent);
+      
 
-      // Reject if below threshold
-      if (similarity < 0.6) {
-        setStatus(`❌ Face mismatch — unauthorized login attempt! (Similarity: ${similarityPercent}%)`);
-        await logAnomalyOnChain(0, "Face mismatch");
+      // Simulate similarity
+      // ✅ REAL FACE MATCHING
+      const storedDescriptor = decrypted.faceDescriptor;
+
+      if (!storedDescriptor) {
+        setStatus("❌ Face data not found. Please re-register.");
         return;
       }
+
+      //this is also updated code
+      const euclideanDistance = (a, b) =>
+      Math.sqrt(a.reduce((sum, v, i) => sum + (v - b[i]) ** 2, 0));
+
+ 
+      //updated code to use euclidean distance for mismatch check
+      const distance = euclideanDistance(
+        decrypted.faceDescriptor,
+        liveDescriptor
+      );
+
+      if (distance > 0.6) {
+        setStatus("❌ Face mismatch — access denied");
+        await logAnomalyOnChain(distance, "Face mismatch");
+        return;
+      }
+
+      // const similarity = cosineSimilarity(liveDescriptor, storedDescriptor);
+      // const similarityPercent = Number((similarity * 100).toFixed(2));
+
+      //update code for above two lines
+      // Convert distance to similarity score (face-api standard)
+      const similarity = Math.max(0, 1 - distance); 
+      const similarityPercent = Number((similarity * 100).toFixed(2));
+
+      //updated code to handle NaN case
+      if (isNaN(similarityPercent)) {
+        throw new Error("Invalid face similarity calculation");
+      }
+
+
+      localStorage.setItem("loginConfidence", similarityPercent);
+
+      // Reject unauthorized face
+      if (distance > 0.6) {
+        setStatus(`❌ Face mismatch — unauthorized user (${similarityPercent}%)`);
+        await logAnomalyOnChain(similarityPercent, "Face mismatch");
+        return;
+      }
+
+
+      localStorage.setItem("loginConfidence", similarityPercent);
+
+      //this is previous original code
+      // ❌ Reject unauthorized face
+      // if (similarity < 0.75) {
+      //   setStatus(`❌ Face mismatch — unauthorized user (${similarityPercent}%)`);
+      //   await logAnomalyOnChain(0, "Face mismatch");
+      //   return;
+      // }
 
       setEmojiState("happy");
       setStatus(`✅ Verified ${name} (${similarityPercent}% match)`);
