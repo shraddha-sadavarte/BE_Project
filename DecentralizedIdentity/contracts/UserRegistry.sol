@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 contract UserRegistry {
+
     struct User {
         string name;
         string email;
@@ -27,8 +28,11 @@ contract UserRegistry {
 
     mapping(address => User) private users;
     mapping(address => bool) private registered;
-    mapping(address => LoginEvent[]) private loginHistory; // 👈 store login events
+    mapping(address => LoginEvent[]) private loginHistory;
     mapping(string => address) private emailToWallet;
+
+    // 🔐 NEW: store all registered wallets (FACE-FIRST LOGIN SUPPORT)
+    address[] private registeredWallets;
 
     Anomaly[] public anomalies;
 
@@ -43,6 +47,9 @@ contract UserRegistry {
         _;
     }
 
+    // --------------------------------
+    // USER REGISTRATION
+    // --------------------------------
     function registerUser(
         string memory _name,
         string memory _email,
@@ -53,7 +60,6 @@ contract UserRegistry {
         require(bytes(_faceHashOrIPFS).length > 0, "Face data required");
         require(!registered[msg.sender], "Wallet already registered");
         require(emailToWallet[_email] == address(0), "Email already registered");
-
 
         users[msg.sender] = User({
             name: _name,
@@ -66,10 +72,18 @@ contract UserRegistry {
         });
 
         registered[msg.sender] = true;
+
+        // 🔐 ADD WALLET TO REGISTRY LIST (NEW)
+        registeredWallets.push(msg.sender);
+
         emailToWallet[_email] = msg.sender;
+
         emit UserRegistered(msg.sender, _name, _email, _faceHashOrIPFS);
     }
 
+    // --------------------------------
+    // UPDATE FACE DATA
+    // --------------------------------
     function updateFace(string memory _newFaceHashOrIPFS) public onlyRegistered {
         require(bytes(_newFaceHashOrIPFS).length > 0, "New face data required");
         User storage u = users[msg.sender];
@@ -78,12 +92,18 @@ contract UserRegistry {
         emit FaceUpdated(msg.sender, _newFaceHashOrIPFS);
     }
 
+    // --------------------------------
+    // REVOKE USER
+    // --------------------------------
     function revokeUser() public onlyRegistered {
         users[msg.sender].active = false;
         registered[msg.sender] = false;
         emit UserRevoked(msg.sender, block.timestamp);
     }
 
+    // --------------------------------
+    // LOG ANOMALY
+    // --------------------------------
     function logAnomaly(uint256 _confidence, string memory _reason) public {
         anomalies.push(Anomaly({
             user: msg.sender,
@@ -94,7 +114,9 @@ contract UserRegistry {
         emit AnomalyLogged(msg.sender, _confidence, _reason, block.timestamp);
     }
 
-    // 🧠 Record successful login (confidence + timestamp)
+    // --------------------------------
+    // RECORD SUCCESSFUL LOGIN
+    // --------------------------------
     function recordLogin(uint256 _confidence) public onlyRegistered {
         loginHistory[msg.sender].push(LoginEvent({
             user: msg.sender,
@@ -104,6 +126,9 @@ contract UserRegistry {
         emit LoginRecorded(msg.sender, _confidence, block.timestamp);
     }
 
+    // --------------------------------
+    // GET USER DATA
+    // --------------------------------
     function getUser(address _account)
         public
         view
@@ -129,15 +154,34 @@ contract UserRegistry {
         );
     }
 
+    // --------------------------------
+    // GET ALL REGISTERED WALLETS (NEW)
+    // --------------------------------
+    function getRegisteredWallets() public view returns (address[] memory) {
+        return registeredWallets;
+    }
+
+    // --------------------------------
+    // GET LOGIN HISTORY
+    // --------------------------------
+    function getLoginHistory(address _account)
+        public
+        view
+        returns (LoginEvent[] memory)
+    {
+        return loginHistory[_account];
+    }
+
+    // --------------------------------
+    // GET ALL ANOMALIES
+    // --------------------------------
     function getAllAnomalies() public view returns (Anomaly[] memory) {
         return anomalies;
     }
 
-    // 🔎 Get all login history for a user
-    function getLoginHistory(address _account) public view returns (LoginEvent[] memory) {
-        return loginHistory[_account];
-    }
-
+    // --------------------------------
+    // CHECK REGISTRATION
+    // --------------------------------
     function isRegistered(address _account) public view returns (bool) {
         return registered[_account];
     }

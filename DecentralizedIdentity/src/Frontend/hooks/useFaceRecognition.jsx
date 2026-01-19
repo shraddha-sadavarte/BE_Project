@@ -73,7 +73,25 @@ export default function useFaceRecognition() {
   // ---------------------------
   // REAL Face Embedding
   // ---------------------------
+  // const captureFace = async () => {
+  //   const detection = await faceapi
+  //     .detectSingleFace(videoRef.current)
+  //     .withFaceLandmarks()
+  //     .withFaceDescriptor();
+
+  //   if (!detection) {
+  //     throw new Error("No face detected");
+  //   }
+
+  //   return Array.from(detection.descriptor); // 🔥 128D vector
+  // };
+
+  //updated captureFace function with modelReady check
   const captureFace = async () => {
+    if (!modelReady) {
+      throw new Error("Face models not loaded yet");
+    }
+
     const detection = await faceapi
       .detectSingleFace(videoRef.current)
       .withFaceLandmarks()
@@ -83,7 +101,7 @@ export default function useFaceRecognition() {
       throw new Error("No face detected");
     }
 
-    return Array.from(detection.descriptor); // 🔥 128D vector
+    return Array.from(detection.descriptor); // 128D real embedding
   };
 
   return {
